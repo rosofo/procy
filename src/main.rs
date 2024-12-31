@@ -21,6 +21,7 @@ fn setup(mut cmd: Commands) {
     cmd.spawn((Camera2d, Msaa::Off));
     cmd.spawn(Caves {
         size: Vec2::new(256.0, 256.0),
+        ..default()
     });
     cmd.spawn(PerfUiAllEntries::default());
 }
