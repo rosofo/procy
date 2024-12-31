@@ -5,6 +5,9 @@ edition = "2021"
 
 [dependencies]
 bevy = { version = "0.15.0", features = ["dynamic_linking"] }
+bevy_vector_shapes = "0.9.3"
+image = "0.25.5"
+rand = "0.8.5"
 
 [workspace]
 resolver = "2"
