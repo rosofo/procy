@@ -102,21 +102,31 @@ fn grow_contours(
     for (entity, handle, mut contours) in contours.iter_mut() {
         if let Some(contours) = block_on(future::poll_once(&mut contours.0)) {
             let image = images.get_mut(&handle.0).unwrap();
-            // append the returned command queue to have it execute later
             for contour in contours {
                 if contour.border_type == BorderType::Hole {
                     continue;
                 }
                 for point in contour.points.iter() {
-                    let x = rng.gen_range(-1..=1);
-                    let y = rng.gen_range(-1..=1);
-                    if rng.gen_bool(0.05) {
+                    let dir = IVec2::new(rng.gen_range(-1..=1), rng.gen_range(-1..=1));
+                    let check_dir = dir * 10;
+                    let check_point = UVec2::new(
+                        ((point.x as i32) + check_dir.x) as u32 % image.width(),
+                        ((point.y as i32) + check_dir.y) as u32 % image.height(),
+                    );
+                    let new_point = UVec2::new(
+                        ((point.x as i32) + dir.x) as u32 % image.width(),
+                        ((point.y as i32) + dir.y) as u32 % image.height(),
+                    );
+                    if rng.gen_bool(0.05)
+                        && image
+                            .get_color_at(check_point.x, check_point.y)
+                            .unwrap()
+                            .to_srgba()
+                            .red
+                            < 0.5
+                    {
                         image
-                            .set_color_at(
-                                ((point.x as i32) + x) as u32 % image.width(),
-                                ((point.y as i32) + y) as u32 % image.height(),
-                                RED.into(),
-                            )
+                            .set_color_at(new_point.x, new_point.y, RED.into())
                             .unwrap();
                     }
                 }
