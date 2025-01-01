@@ -1,4 +1,5 @@
 mod camera;
+mod math;
 mod plugins;
 mod prelude;
 use bevy::log::{Level, LogPlugin};
@@ -19,6 +20,7 @@ fn main() {
         .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin)
         .add_plugins(bevy::diagnostic::EntityCountDiagnosticsPlugin)
         .add_plugins(iyes_perf_ui::PerfUiPlugin)
+        .add_plugins(EguiPlugin)
         .add_plugins(TilemapPlugin)
         .add_plugins(Shape2dPlugin::new(ShapeConfig::default_2d()))
         .add_plugins(terrain_plugin)
@@ -35,7 +37,7 @@ fn main() {
 }
 
 fn setup(mut cmd: Commands) {
-    cmd.spawn(Camera2d);
+    cmd.spawn((Camera2d, Msaa::Off));
     cmd.spawn(Caves {
         size: Vec2::new(256.0, 256.0),
         ..default()
