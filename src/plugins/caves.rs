@@ -4,7 +4,9 @@ use crate::{
     plugins::terrain::{FLOOR, WALL},
     prelude::*,
 };
-use bevy::{color::ColorCurve, utils::tracing::instrument};
+use bevy::{
+    color::ColorCurve, input::common_conditions::input_just_pressed, utils::tracing::instrument,
+};
 use flat_spatial::Grid;
 use image::{GrayImage, Luma};
 use ops::FloatPow;
@@ -12,10 +14,8 @@ use petgraph::{prelude::*, visit::IntoNodeReferences};
 use rand::{thread_rng, Rng};
 
 pub fn caves_plugin(app: &mut App) {
-    app.add_systems(
-        FixedUpdate,
-        (seed, connect, populate_tiles, finish, tick).chain(),
-    );
+    app.add_systems(Update, regen.run_if(input_just_pressed(KeyCode::Space)));
+    app.add_systems(FixedUpdate, (seed, connect, populate_tiles, finish).chain());
 }
 
 pub struct CaveNode {
@@ -172,27 +172,17 @@ fn random_bsp(size: Vec2) -> Vec<CaveNode> {
     nodes
 }
 
-fn tick(
-    mut timer: Local<Timer>,
-    time: Res<Time>,
-    caves: Query<Entity, With<Caves>>,
-    mut commands: Commands,
-) {
-    if timer.tick(time.delta()).just_finished() {
-        for entity in caves.iter() {
-            if let Some(e) = commands.get_entity(entity) {
-                e.try_despawn_recursive()
-            }
+fn regen(caves: Query<Entity, With<Caves>>, mut commands: Commands) {
+    for entity in caves.iter() {
+        if let Some(e) = commands.get_entity(entity) {
+            e.try_despawn_recursive()
         }
-
-        commands.spawn(Caves {
-            size: Vec2::new(256.0, 256.0),
-            ..default()
-        });
-
-        timer.set_duration(Duration::from_secs(1));
-        timer.reset();
     }
+
+    commands.spawn(Caves {
+        size: Vec2::new(256.0, 256.0),
+        ..default()
+    });
 }
 
 #[instrument(skip(caves, tile_storage, tiles))]
