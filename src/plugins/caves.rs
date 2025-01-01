@@ -4,17 +4,11 @@ use crate::{
     plugins::terrain::{FLOOR, WALL},
     prelude::*,
 };
-use bevy::{
-    color::ColorCurve,
-    utils::tracing::instrument,
-};
+use bevy::{color::ColorCurve, utils::tracing::instrument};
 use flat_spatial::Grid;
 use image::{GrayImage, Luma};
 use ops::FloatPow;
-use petgraph::{
-    prelude::*,
-    visit::IntoNodeReferences,
-};
+use petgraph::{prelude::*, visit::IntoNodeReferences};
 use rand::{thread_rng, Rng};
 
 pub fn caves_plugin(app: &mut App) {
@@ -33,7 +27,7 @@ pub struct CaveEdge {
 }
 
 #[derive(Component, Default)]
-#[require(Transform(|| Transform::from_scale(Vec3::splat(2.0)).with_translation(Vec3::new(-300.0,-300.0,0.0))), Generating, InheritedVisibility)]
+#[require(Transform, Generating, InheritedVisibility)]
 pub struct Caves {
     pub size: Vec2,
     pub graph: UnGraph<CaveNode, CaveEdge>,

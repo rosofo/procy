@@ -1,3 +1,4 @@
+mod camera;
 mod plugins;
 mod prelude;
 use bevy::log::{Level, LogPlugin};
@@ -29,6 +30,7 @@ fn main() {
         .add_systems(PostUpdate, || {
             tracy_client::frame_mark();
         })
+        .add_systems(Update, camera::movement)
         .run();
 }
 
