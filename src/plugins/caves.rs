@@ -7,9 +7,13 @@ use bevy::{
 };
 use bevy_vector_shapes::painter::CanvasBundle;
 use flat_spatial::Grid;
-use image::Luma;
+use image::{GrayImage, Luma};
 use ndarray::{parallel::prelude::IntoParallelRefIterator, Array2, ShapeBuilder};
-use petgraph::{prelude::*, visit::IntoNodeReferences};
+use ops::FloatPow;
+use petgraph::{
+    prelude::*,
+    visit::{IntoEdges, IntoNodeReferences},
+};
 use rand::{thread_rng, Rng};
 
 pub fn caves_plugin(app: &mut App) {
@@ -18,7 +22,7 @@ pub fn caves_plugin(app: &mut App) {
         (
             seed,
             connect,
-            ((populate_tiles, show_tiles).chain(), show_graph),
+            ((populate_tiles, show_tiles).chain()),
             finish,
             tick,
         )
@@ -35,7 +39,7 @@ pub struct CaveEdge {
 }
 
 #[derive(Component, Default)]
-#[require(Transform(|| Transform::from_scale(Vec3::splat(1.0)).with_translation(Vec3::new(-300.0,-300.0,0.0))), Generating, InheritedVisibility)]
+#[require(Transform(|| Transform::from_scale(Vec3::splat(2.0)).with_translation(Vec3::new(-300.0,-300.0,0.0))), Generating, InheritedVisibility)]
 pub struct Caves {
     pub size: Vec2,
     pub graph: UnGraph<CaveNode, CaveEdge>,
@@ -109,7 +113,7 @@ fn connect(mut caves: Query<&mut Caves, With<Generating>>) {
             let weight = &system.graph[node];
             let neighbors =
                 g.query_around([weight.position.x, weight.position.y], weight.radius / 2.0);
-            for (handle, _pos) in neighbors {
+            for (handle, _pos) in neighbors.take((64.0 - weight.radius) as usize + 1) {
                 if rng.gen_bool(0.5) {
                     let (_, id) = g.get(handle).unwrap();
                     system.graph.add_edge(node, *id, CaveEdge { width: 1.0 });
@@ -130,7 +134,7 @@ fn random_bsp(size: Vec2) -> Vec<CaveNode> {
     let mut rng = thread_rng();
     let mut nodes = vec![];
 
-    let min_area = 32.0;
+    let min_area = 64.0;
 
     let mut stack = vec![Rect::new(0.0, 0.0, size.x, size.y)];
 
@@ -181,7 +185,7 @@ fn random_bsp(size: Vec2) -> Vec<CaveNode> {
     while let Some(rect) = stack.pop() {
         let area = rect.size().element_product();
         let chance = (size.element_product() - area).remap(0.0, size.element_product(), 0.0, 1.0);
-        if rect.size().element_product() < min_area || rng.gen_bool(chance as f64 * 0.2) {
+        if rect.size().element_product() < min_area || rng.gen_bool((chance as f64 * 0.1).powi(2)) {
             push_node(rect);
         } else {
             split_rect(&mut stack, rect);
@@ -253,6 +257,9 @@ fn populate_tiles(
                 Luma([255]),
             );
         }
+        for edge in system.graph.edge_references() {
+            tunnel_between(&system.graph, edge.source(), edge.target(), &mut img);
+        }
         let map = img
             .rows()
             .flat_map(|row| {
@@ -267,5 +274,27 @@ fn populate_tiles(
             .collect_vec();
         let map = Array2::from_shape_vec((256, 256).strides((1, 256)), map).unwrap();
         commands.entity(entity).try_insert(CaveMap { map });
+    }
+}
+
+fn tunnel_between(
+    graph: &UnGraph<CaveNode, CaveEdge>,
+    source: NodeIndex,
+    target: NodeIndex,
+    map: &mut GrayImage,
+) {
+    let mut rng = thread_rng();
+    let a = graph.node_weight(source).unwrap();
+    let b = graph.node_weight(target).unwrap();
+    let dir = b.position - a.position;
+    for i in 0..10 {
+        let t = (i as f32 / 10.0).squared();
+        let dir = Rot2::degrees(rng.gen_range(-45.0..45.0)) * dir;
+        imageproc::drawing::draw_filled_circle_mut(
+            map,
+            (a.position + dir * t).as_ivec2().into(),
+            (b.radius * 0.1 * t + a.radius * 0.1 * (1.0 - t)) as i32,
+            Luma([255]),
+        );
     }
 }
