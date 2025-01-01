@@ -1,14 +1,16 @@
 use std::time::Duration;
 
 use crate::prelude::*;
-use bevy::{color::ColorCurve, core_pipeline::deferred::node};
+use bevy::{color::ColorCurve, core_pipeline::deferred::node, utils::tracing::instrument};
 use flat_spatial::Grid;
+use image::Luma;
+use ndarray::{parallel::prelude::IntoParallelRefIterator, Array2, ShapeBuilder};
 use petgraph::{prelude::*, visit::IntoNodeReferences};
 use rand::{thread_rng, Rng};
 
 pub fn caves_plugin(app: &mut App) {
-    app.add_systems(Update, draw);
-    app.add_systems(FixedUpdate, (seed, connect, finish).chain());
+    app.add_systems(Update, (draw_graph, draw_tiles));
+    app.add_systems(FixedUpdate, (seed, connect, finish, populate_tiles).chain());
     app.add_systems(FixedUpdate, tick);
 }
 
@@ -30,9 +32,22 @@ pub struct Caves {
 #[derive(Component, Default)]
 pub struct Generating;
 
-fn draw(caves: Query<&Caves>, mut painter: ShapePainter) {
+#[derive(Clone)]
+pub enum Tile {
+    Wall,
+    Floor,
+}
+
+#[derive(Component)]
+pub struct CaveMap {
+    pub map: Array2<Tile>,
+}
+
+#[instrument(skip(caves, painter))]
+fn draw_graph(caves: Query<&Caves>, mut painter: ShapePainter) {
     let curve = ColorCurve::new([RED, GREEN, BLUE]).unwrap();
     for caves in caves.iter() {
+        debug!("draw edges");
         for edge in caves.graph.edge_indices() {
             let (a, b) = caves.graph.edge_endpoints(edge).unwrap();
             let a = &caves.graph[a];
@@ -41,6 +56,7 @@ fn draw(caves: Query<&Caves>, mut painter: ShapePainter) {
             painter.set_color(curve.sample_clamped(dist / 256.0));
             painter.line(a.position.extend(0.0), b.position.extend(0.0));
         }
+        debug!("draw nodes");
         for node in caves.graph.node_indices() {
             let node = &caves.graph[node];
             painter.set_translation(node.position.extend(0.0));
@@ -58,14 +74,17 @@ fn seed(mut caves: Query<&mut Caves, With<Generating>>) {
     }
 }
 
+#[instrument(skip(caves))]
 fn connect(mut caves: Query<&mut Caves, With<Generating>>) {
     let mut rng = thread_rng();
     for mut system in caves.iter_mut() {
+        debug!("fill spatial grid");
         let mut g: Grid<NodeIndex, [f32; 2]> = Grid::new(32);
         for (node, weight) in system.graph.node_references() {
             g.insert([weight.position.x, weight.position.y], node);
         }
 
+        debug!("add edges");
         for node in system.graph.node_indices() {
             let weight = &system.graph[node];
             let neighbors =
@@ -86,6 +105,7 @@ fn finish(caves: Query<Entity, With<Generating>>, mut commands: Commands) {
     }
 }
 
+#[instrument]
 fn random_bsp(size: Vec2) -> Vec<CaveNode> {
     let mut rng = thread_rng();
     let mut nodes = vec![];
@@ -95,6 +115,7 @@ fn random_bsp(size: Vec2) -> Vec<CaveNode> {
     let mut stack = vec![Rect::new(0.0, 0.0, size.x, size.y)];
 
     let mut push_node = |rect: Rect| {
+        debug!("leaf");
         nodes.push(CaveNode {
             position: rect.center(),
             radius: rect.width().max(rect.height()),
@@ -103,6 +124,7 @@ fn random_bsp(size: Vec2) -> Vec<CaveNode> {
 
     let mut rng_ = rng.clone();
     let mut split_rect = |stack: &mut Vec<Rect>, rect: Rect| {
+        debug!("split");
         if rng_.gen_bool(0.5) {
             let left = Rect::new(
                 rect.min.x,
@@ -167,5 +189,54 @@ fn tick(
 
         timer.set_duration(Duration::from_secs(1));
         timer.reset();
+    }
+}
+
+#[instrument(skip(maps, painter))]
+fn draw_tiles(maps: Query<&CaveMap>, mut painter: ShapePainter) {
+    debug!("draw tiles");
+    let scale = 1.0;
+    for map in maps.iter() {
+        for ((x, y), tile) in map.map.indexed_iter() {
+            if let Tile::Wall = *tile {
+                painter.set_translation(
+                    Vec2::new(x as f32 * scale - 300.0, y as f32 * scale - 300.0).extend(1.0),
+                );
+                painter.circle(1.0);
+            }
+        }
+    }
+}
+
+#[instrument(skip(caves, commands))]
+fn populate_tiles(
+    caves: Query<(Entity, &Caves), (Without<CaveMap>, Without<Generating>)>,
+    mut commands: Commands,
+) {
+    debug!("populate tiles");
+    for (entity, system) in caves.iter() {
+        let mut img = image::GrayImage::new(256, 256);
+        for node in system.graph.node_weights() {
+            imageproc::drawing::draw_filled_circle_mut(
+                &mut img,
+                (node.position.x as i32, node.position.y as i32),
+                (node.radius.ceil() * 0.1) as i32,
+                Luma([255]),
+            );
+        }
+        let map = img
+            .rows()
+            .flat_map(|row| {
+                row.map(|pixel| {
+                    if pixel.0[0] == 0 {
+                        Tile::Wall
+                    } else {
+                        Tile::Floor
+                    }
+                })
+            })
+            .collect_vec();
+        let map = Array2::from_shape_vec((256, 256).strides((1, 256)), map).unwrap();
+        commands.entity(entity).try_insert(CaveMap { map });
     }
 }
