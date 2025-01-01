@@ -1,33 +1,21 @@
 use std::time::Duration;
 
-use crate::prelude::*;
-use bevy::{
-    asset::RenderAssetUsages, color::ColorCurve, core_pipeline::deferred::node,
-    utils::tracing::instrument,
+use crate::{
+    plugins::terrain::{FLOOR, WALL},
+    prelude::*,
 };
-use bevy_vector_shapes::painter::CanvasBundle;
+use bevy::{
+    color::ColorCurve, input::common_conditions::input_just_pressed, utils::tracing::instrument,
+};
 use flat_spatial::Grid;
 use image::{GrayImage, Luma};
-use ndarray::{parallel::prelude::IntoParallelRefIterator, Array2, ShapeBuilder};
 use ops::FloatPow;
-use petgraph::{
-    prelude::*,
-    visit::{IntoEdges, IntoNodeReferences},
-};
+use petgraph::{prelude::*, visit::IntoNodeReferences};
 use rand::{thread_rng, Rng};
 
 pub fn caves_plugin(app: &mut App) {
-    app.add_systems(
-        FixedUpdate,
-        (
-            seed,
-            connect,
-            ((populate_tiles, show_tiles).chain()),
-            finish,
-            tick,
-        )
-            .chain(),
-    );
+    app.add_systems(Update, regen.run_if(input_just_pressed(KeyCode::Space)));
+    app.add_systems(FixedUpdate, (seed, connect, populate_tiles, finish).chain());
 }
 
 pub struct CaveNode {
@@ -39,7 +27,7 @@ pub struct CaveEdge {
 }
 
 #[derive(Component, Default)]
-#[require(Transform(|| Transform::from_scale(Vec3::splat(2.0)).with_translation(Vec3::new(-300.0,-300.0,0.0))), Generating, InheritedVisibility)]
+#[require(Transform, Generating, InheritedVisibility)]
 pub struct Caves {
     pub size: Vec2,
     pub graph: UnGraph<CaveNode, CaveEdge>,
@@ -47,17 +35,6 @@ pub struct Caves {
 
 #[derive(Component, Default)]
 pub struct Generating;
-
-#[derive(Clone)]
-pub enum Tile {
-    Wall,
-    Floor,
-}
-
-#[derive(Component)]
-pub struct CaveMap {
-    pub map: Array2<Tile>,
-}
 
 #[instrument(skip(caves, cmd, shapes))]
 fn show_graph(
@@ -195,56 +172,24 @@ fn random_bsp(size: Vec2) -> Vec<CaveNode> {
     nodes
 }
 
-fn tick(
-    mut timer: Local<Timer>,
-    time: Res<Time>,
-    caves: Query<Entity, With<Caves>>,
-    mut commands: Commands,
-) {
-    if timer.tick(time.delta()).just_finished() {
-        for entity in caves.iter() {
-            if let Some(e) = commands.get_entity(entity) {
-                e.try_despawn_recursive()
-            }
+fn regen(caves: Query<Entity, With<Caves>>, mut commands: Commands) {
+    for entity in caves.iter() {
+        if let Some(e) = commands.get_entity(entity) {
+            e.try_despawn_recursive()
         }
-
-        commands.spawn(Caves {
-            size: Vec2::new(256.0, 256.0),
-            ..default()
-        });
-
-        timer.set_duration(Duration::from_secs(1));
-        timer.reset();
     }
+
+    commands.spawn(Caves {
+        size: Vec2::new(256.0, 256.0),
+        ..default()
+    });
 }
 
-#[instrument(skip(maps, cmd, shapes))]
-fn show_tiles(
-    maps: Query<(Entity, &CaveMap), With<Generating>>,
-    mut cmd: Commands,
-    shapes: ShapeCommands,
-) {
-    debug!("show tiles");
-    let scale = 1.0;
-    for (entity, map) in maps.iter() {
-        cmd.entity(entity)
-            .with_shape_children(shapes.config(), |parent| {
-                for ((x, y), tile) in map.map.indexed_iter() {
-                    if let Tile::Wall = *tile {
-                        parent.set_translation(
-                            Vec2::new(x as f32 * scale, y as f32 * scale).extend(1.0),
-                        );
-                        parent.circle(1.0);
-                    }
-                }
-            });
-    }
-}
-
-#[instrument(skip(caves, commands))]
+#[instrument(skip(caves, tile_storage, tiles))]
 fn populate_tiles(
-    caves: Query<(Entity, &Caves), (Without<CaveMap>, With<Generating>)>,
-    mut commands: Commands,
+    caves: Query<(Entity, &Caves), With<Generating>>,
+    tile_storage: Single<&TileStorage>,
+    mut tiles: Query<&mut TileTextureIndex>,
 ) {
     debug!("populate tiles");
     for (entity, system) in caves.iter() {
@@ -260,20 +205,20 @@ fn populate_tiles(
         for edge in system.graph.edge_references() {
             tunnel_between(&system.graph, edge.source(), edge.target(), &mut img);
         }
-        let map = img
-            .rows()
-            .flat_map(|row| {
-                row.map(|pixel| {
-                    if pixel.0[0] == 0 {
-                        Tile::Wall
-                    } else {
-                        Tile::Floor
-                    }
-                })
-            })
-            .collect_vec();
-        let map = Array2::from_shape_vec((256, 256).strides((1, 256)), map).unwrap();
-        commands.entity(entity).try_insert(CaveMap { map });
+
+        for (i, pixel) in img.iter().enumerate() {
+            let x = i as u32 % 256;
+            let y = i as u32 / 256;
+            let tile = tile_storage
+                .get(&TilePos { x, y })
+                .expect("Tile storage should already be populated");
+            let mut idx = tiles.get_mut(tile).unwrap();
+            if *pixel == 255 {
+                idx.0 = FLOOR;
+            } else {
+                idx.0 = WALL;
+            }
+        }
     }
 }
 
