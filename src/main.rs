@@ -20,8 +20,8 @@ fn main() {
         .add_plugins(iyes_perf_ui::PerfUiPlugin)
         .add_plugins(TilemapPlugin)
         .add_plugins(Shape2dPlugin::new(ShapeConfig::default_2d()))
-        // .add_plugins(caves_plugin)
         .add_plugins(terrain_plugin)
+        .add_plugins(caves_plugin)
         .add_systems(Startup, setup)
         .add_systems(FixedPostUpdate, || {
             tracy_client::secondary_frame_mark!("Fixed Frame");
