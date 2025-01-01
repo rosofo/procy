@@ -1,7 +1,11 @@
 use std::time::Duration;
 
 use crate::prelude::*;
-use bevy::{color::ColorCurve, core_pipeline::deferred::node, utils::tracing::instrument};
+use bevy::{
+    asset::RenderAssetUsages, color::ColorCurve, core_pipeline::deferred::node,
+    utils::tracing::instrument,
+};
+use bevy_vector_shapes::painter::CanvasBundle;
 use flat_spatial::Grid;
 use image::Luma;
 use ndarray::{parallel::prelude::IntoParallelRefIterator, Array2, ShapeBuilder};
@@ -9,9 +13,17 @@ use petgraph::{prelude::*, visit::IntoNodeReferences};
 use rand::{thread_rng, Rng};
 
 pub fn caves_plugin(app: &mut App) {
-    app.add_systems(Update, (draw_graph, draw_tiles));
-    app.add_systems(FixedUpdate, (seed, connect, finish, populate_tiles).chain());
-    app.add_systems(FixedUpdate, tick);
+    app.add_systems(
+        FixedUpdate,
+        (
+            seed,
+            connect,
+            ((populate_tiles, show_tiles).chain(), show_graph),
+            finish,
+            tick,
+        )
+            .chain(),
+    );
 }
 
 pub struct CaveNode {
@@ -23,7 +35,7 @@ pub struct CaveEdge {
 }
 
 #[derive(Component, Default)]
-#[require(Transform(|| Transform::from_scale(Vec3::splat(2.0))), Generating)]
+#[require(Transform(|| Transform::from_scale(Vec3::splat(1.0)).with_translation(Vec3::new(-300.0,-300.0,0.0))), Generating, InheritedVisibility)]
 pub struct Caves {
     pub size: Vec2,
     pub graph: UnGraph<CaveNode, CaveEdge>,
@@ -43,25 +55,33 @@ pub struct CaveMap {
     pub map: Array2<Tile>,
 }
 
-#[instrument(skip(caves, painter))]
-fn draw_graph(caves: Query<&Caves>, mut painter: ShapePainter) {
+#[instrument(skip(caves, cmd, shapes))]
+fn show_graph(
+    caves: Query<(Entity, &Caves), With<Generating>>,
+    mut cmd: Commands,
+    shapes: ShapeCommands,
+) {
     let curve = ColorCurve::new([RED, GREEN, BLUE]).unwrap();
-    for caves in caves.iter() {
-        debug!("draw edges");
-        for edge in caves.graph.edge_indices() {
-            let (a, b) = caves.graph.edge_endpoints(edge).unwrap();
-            let a = &caves.graph[a];
-            let b = &caves.graph[b];
-            let dist = a.position.distance(b.position);
-            painter.set_color(curve.sample_clamped(dist / 256.0));
-            painter.line(a.position.extend(0.0), b.position.extend(0.0));
-        }
-        debug!("draw nodes");
-        for node in caves.graph.node_indices() {
-            let node = &caves.graph[node];
-            painter.set_translation(node.position.extend(0.0));
-            painter.set_color(curve.sample_clamped(node.radius / 256.0));
-            painter.circle(node.radius / 10.0);
+    for (entity, caves) in caves.iter() {
+        if let Some(mut entity) = cmd.get_entity(entity) {
+            entity.with_shape_children(shapes.config(), |parent| {
+                debug!("draw edges");
+                for edge in caves.graph.edge_indices() {
+                    let (a, b) = caves.graph.edge_endpoints(edge).unwrap();
+                    let a = &caves.graph[a];
+                    let b = &caves.graph[b];
+                    let dist = a.position.distance(b.position);
+                    parent.set_color(curve.sample_clamped(dist / 256.0));
+                    parent.line(a.position.extend(0.0), b.position.extend(0.0));
+                }
+                debug!("draw nodes");
+                for node in caves.graph.node_indices() {
+                    let node = &caves.graph[node];
+                    parent.set_translation(node.position.extend(0.0));
+                    parent.set_color(curve.sample_clamped(node.radius / 256.0));
+                    parent.circle(node.radius / 10.0);
+                }
+            });
         }
     }
 }
@@ -179,7 +199,9 @@ fn tick(
 ) {
     if timer.tick(time.delta()).just_finished() {
         for entity in caves.iter() {
-            commands.entity(entity).despawn();
+            if let Some(e) = commands.get_entity(entity) {
+                e.try_despawn_recursive()
+            }
         }
 
         commands.spawn(Caves {
@@ -192,25 +214,32 @@ fn tick(
     }
 }
 
-#[instrument(skip(maps, painter))]
-fn draw_tiles(maps: Query<&CaveMap>, mut painter: ShapePainter) {
-    debug!("draw tiles");
+#[instrument(skip(maps, cmd, shapes))]
+fn show_tiles(
+    maps: Query<(Entity, &CaveMap), With<Generating>>,
+    mut cmd: Commands,
+    shapes: ShapeCommands,
+) {
+    debug!("show tiles");
     let scale = 1.0;
-    for map in maps.iter() {
-        for ((x, y), tile) in map.map.indexed_iter() {
-            if let Tile::Wall = *tile {
-                painter.set_translation(
-                    Vec2::new(x as f32 * scale - 300.0, y as f32 * scale - 300.0).extend(1.0),
-                );
-                painter.circle(1.0);
-            }
-        }
+    for (entity, map) in maps.iter() {
+        cmd.entity(entity)
+            .with_shape_children(shapes.config(), |parent| {
+                for ((x, y), tile) in map.map.indexed_iter() {
+                    if let Tile::Wall = *tile {
+                        parent.set_translation(
+                            Vec2::new(x as f32 * scale, y as f32 * scale).extend(1.0),
+                        );
+                        parent.circle(1.0);
+                    }
+                }
+            });
     }
 }
 
 #[instrument(skip(caves, commands))]
 fn populate_tiles(
-    caves: Query<(Entity, &Caves), (Without<CaveMap>, Without<Generating>)>,
+    caves: Query<(Entity, &Caves), (Without<CaveMap>, With<Generating>)>,
     mut commands: Commands,
 ) {
     debug!("populate tiles");
