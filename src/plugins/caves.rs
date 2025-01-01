@@ -2,138 +2,299 @@ use std::time::Duration;
 
 use crate::prelude::*;
 use bevy::{
-    asset::RenderAssetUsages,
-    ecs::world::CommandQueue,
-    tasks::{block_on, futures_lite::future, AsyncComputeTaskPool, Task},
+    asset::RenderAssetUsages, color::ColorCurve, core_pipeline::deferred::node,
+    utils::tracing::instrument,
 };
-use image::{buffer::ConvertBuffer, DynamicImage, ImageBuffer, Luma, Rgb};
-use imageproc::contours::{find_contours, BorderType, Contour};
+use bevy_vector_shapes::painter::CanvasBundle;
+use flat_spatial::Grid;
+use image::{GrayImage, Luma};
+use ndarray::{parallel::prelude::IntoParallelRefIterator, Array2, ShapeBuilder};
+use ops::FloatPow;
+use petgraph::{
+    prelude::*,
+    visit::{IntoEdges, IntoNodeReferences},
+};
 use rand::{thread_rng, Rng};
 
 pub fn caves_plugin(app: &mut App) {
-    app.add_systems(Update, add_image);
-    app.add_systems(FixedUpdate, (seed, compute_contours, grow_contours));
+    app.add_systems(
+        FixedUpdate,
+        (
+            seed,
+            connect,
+            ((populate_tiles, show_tiles).chain()),
+            finish,
+            tick,
+        )
+            .chain(),
+    );
 }
 
-#[derive(Component)]
-#[require(Transform(|| Transform::from_scale(Vec3::splat(2.0))))]
+pub struct CaveNode {
+    pub position: Vec2,
+    pub radius: f32,
+}
+pub struct CaveEdge {
+    pub width: f32,
+}
+
+#[derive(Component, Default)]
+#[require(Transform(|| Transform::from_scale(Vec3::splat(2.0)).with_translation(Vec3::new(-300.0,-300.0,0.0))), Generating, InheritedVisibility)]
 pub struct Caves {
     pub size: Vec2,
+    pub graph: UnGraph<CaveNode, CaveEdge>,
+}
+
+#[derive(Component, Default)]
+pub struct Generating;
+
+#[derive(Clone)]
+pub enum Tile {
+    Wall,
+    Floor,
 }
 
 #[derive(Component)]
-pub struct CavesImage(Handle<Image>);
+pub struct CaveMap {
+    pub map: Array2<Tile>,
+}
 
-pub fn add_image(
-    caves: Query<(Entity, &Caves), Without<CavesImage>>,
-    mut images: ResMut<Assets<Image>>,
+#[instrument(skip(caves, cmd, shapes))]
+fn show_graph(
+    caves: Query<(Entity, &Caves), With<Generating>>,
     mut cmd: Commands,
+    shapes: ShapeCommands,
 ) {
+    let curve = ColorCurve::new([RED, GREEN, BLUE]).unwrap();
     for (entity, caves) in caves.iter() {
-        let image = Image::from_dynamic(
-            image::DynamicImage::new_rgb8(caves.size.x as u32, caves.size.y as u32),
-            true,
-            RenderAssetUsages::all(),
-        );
-        let cells = images.add(image);
-        cmd.entity(entity)
-            .insert(CavesImage(cells.clone()))
-            .insert(Sprite::from_image(cells));
-    }
-}
-
-fn seed(
-    caves: Query<&CavesImage>,
-    mut images: ResMut<Assets<Image>>,
-    mut timer: Local<Timer>,
-    time: Res<Time>,
-) {
-    timer.tick(time.delta());
-    if timer.just_finished() {
-        let mut rng = thread_rng();
-        for caves in caves.iter() {
-            let image = images.get_mut(&caves.0).unwrap();
-            let mut seed: Vec2 = rng.gen();
-            seed.x *= image.width() as f32;
-            seed.y *= image.height() as f32;
-            info!("seeding caves {}", seed);
-            let pixel = image
-                .pixel_bytes_mut(UVec3::new(seed.x as u32, seed.y as u32, 0))
-                .unwrap();
-            pixel[0] = 255;
-        }
-
-        timer.set_duration(Duration::from_secs_f32(0.5));
-        timer.reset();
-    }
-}
-
-fn compute_contours(
-    caves: Query<(Entity, &CavesImage)>,
-    images: ResMut<Assets<Image>>,
-    mut timer: Local<Timer>,
-    time: Res<Time>,
-    mut cmd: Commands,
-) {
-    timer.tick(time.delta());
-    if timer.just_finished() {
-        let thread_pool = AsyncComputeTaskPool::get();
-
-        for (entity, caves) in caves.iter() {
-            let image = images.get(&caves.0).unwrap().clone();
-            let task = thread_pool.spawn(async move {
-                find_contours(&image.try_into_dynamic().unwrap().into_luma8())
-            });
-
-            cmd.entity(entity).insert(ComputeContours(task));
-        }
-
-        timer.set_duration(Duration::from_secs_f32(0.0));
-        timer.reset();
-    }
-}
-
-fn grow_contours(
-    mut contours: Query<(Entity, &CavesImage, &mut ComputeContours)>,
-    mut images: ResMut<Assets<Image>>,
-    mut cmd: Commands,
-) {
-    let mut rng = thread_rng();
-    for (entity, handle, mut contours) in contours.iter_mut() {
-        if let Some(contours) = block_on(future::poll_once(&mut contours.0)) {
-            let image = images.get_mut(&handle.0).unwrap();
-            for contour in contours {
-                if contour.border_type == BorderType::Hole {
-                    continue;
+        if let Some(mut entity) = cmd.get_entity(entity) {
+            entity.with_shape_children(shapes.config(), |parent| {
+                debug!("draw edges");
+                for edge in caves.graph.edge_indices() {
+                    let (a, b) = caves.graph.edge_endpoints(edge).unwrap();
+                    let a = &caves.graph[a];
+                    let b = &caves.graph[b];
+                    let dist = a.position.distance(b.position);
+                    parent.set_color(curve.sample_clamped(dist / 256.0));
+                    parent.line(a.position.extend(0.0), b.position.extend(0.0));
                 }
-                for point in contour.points.iter() {
-                    let dir = IVec2::new(rng.gen_range(-1..=1), rng.gen_range(-1..=1));
-                    let check_dir = dir * 10;
-                    let check_point = UVec2::new(
-                        ((point.x as i32) + check_dir.x) as u32 % image.width(),
-                        ((point.y as i32) + check_dir.y) as u32 % image.height(),
-                    );
-                    let new_point = UVec2::new(
-                        ((point.x as i32) + dir.x) as u32 % image.width(),
-                        ((point.y as i32) + dir.y) as u32 % image.height(),
-                    );
-                    if rng.gen_bool(0.05)
-                        && image
-                            .get_color_at(check_point.x, check_point.y)
-                            .unwrap()
-                            .to_srgba()
-                            .red
-                            < 0.5
-                    {
-                        image
-                            .set_color_at(new_point.x, new_point.y, RED.into())
-                            .unwrap();
-                    }
+                debug!("draw nodes");
+                for node in caves.graph.node_indices() {
+                    let node = &caves.graph[node];
+                    parent.set_translation(node.position.extend(0.0));
+                    parent.set_color(curve.sample_clamped(node.radius / 256.0));
+                    parent.circle(node.radius / 10.0);
+                }
+            });
+        }
+    }
+}
+
+fn seed(mut caves: Query<&mut Caves, With<Generating>>) {
+    for mut system in caves.iter_mut() {
+        random_bsp(system.size).into_iter().for_each(|node| {
+            system.graph.add_node(node);
+        });
+    }
+}
+
+#[instrument(skip(caves))]
+fn connect(mut caves: Query<&mut Caves, With<Generating>>) {
+    let mut rng = thread_rng();
+    for mut system in caves.iter_mut() {
+        debug!("fill spatial grid");
+        let mut g: Grid<NodeIndex, [f32; 2]> = Grid::new(32);
+        for (node, weight) in system.graph.node_references() {
+            g.insert([weight.position.x, weight.position.y], node);
+        }
+
+        debug!("add edges");
+        for node in system.graph.node_indices() {
+            let weight = &system.graph[node];
+            let neighbors =
+                g.query_around([weight.position.x, weight.position.y], weight.radius / 2.0);
+            for (handle, _pos) in neighbors.take((64.0 - weight.radius) as usize + 1) {
+                if rng.gen_bool(0.5) {
+                    let (_, id) = g.get(handle).unwrap();
+                    system.graph.add_edge(node, *id, CaveEdge { width: 1.0 });
                 }
             }
-            cmd.entity(entity).remove::<ComputeContours>();
         }
     }
 }
-#[derive(Component)]
-struct ComputeContours(Task<Vec<Contour<u8>>>);
+
+fn finish(caves: Query<Entity, With<Generating>>, mut commands: Commands) {
+    for entity in caves.iter() {
+        commands.entity(entity).remove::<Generating>();
+    }
+}
+
+#[instrument]
+fn random_bsp(size: Vec2) -> Vec<CaveNode> {
+    let mut rng = thread_rng();
+    let mut nodes = vec![];
+
+    let min_area = 64.0;
+
+    let mut stack = vec![Rect::new(0.0, 0.0, size.x, size.y)];
+
+    let mut push_node = |rect: Rect| {
+        debug!("leaf");
+        nodes.push(CaveNode {
+            position: rect.center(),
+            radius: rect.width().max(rect.height()),
+        });
+    };
+
+    let mut rng_ = rng.clone();
+    let mut split_rect = |stack: &mut Vec<Rect>, rect: Rect| {
+        debug!("split");
+        if rng_.gen_bool(0.5) {
+            let left = Rect::new(
+                rect.min.x,
+                rect.min.y,
+                rect.min.x + rect.width() / 2.0,
+                rect.max.y,
+            );
+            let right = Rect::new(
+                rect.min.x + rect.width() / 2.0,
+                rect.min.y,
+                rect.max.x,
+                rect.max.y,
+            );
+            stack.push(left);
+            stack.push(right);
+        } else {
+            let top = Rect::new(
+                rect.min.x,
+                rect.min.y,
+                rect.max.x,
+                rect.min.y + rect.height() / 2.0,
+            );
+            let bottom = Rect::new(
+                rect.min.x,
+                rect.min.y + rect.height() / 2.0,
+                rect.max.x,
+                rect.max.y,
+            );
+            stack.push(top);
+            stack.push(bottom);
+        }
+    };
+
+    while let Some(rect) = stack.pop() {
+        let area = rect.size().element_product();
+        let chance = (size.element_product() - area).remap(0.0, size.element_product(), 0.0, 1.0);
+        if rect.size().element_product() < min_area || rng.gen_bool((chance as f64 * 0.1).powi(2)) {
+            push_node(rect);
+        } else {
+            split_rect(&mut stack, rect);
+        }
+    }
+
+    nodes
+}
+
+fn tick(
+    mut timer: Local<Timer>,
+    time: Res<Time>,
+    caves: Query<Entity, With<Caves>>,
+    mut commands: Commands,
+) {
+    if timer.tick(time.delta()).just_finished() {
+        for entity in caves.iter() {
+            if let Some(e) = commands.get_entity(entity) {
+                e.try_despawn_recursive()
+            }
+        }
+
+        commands.spawn(Caves {
+            size: Vec2::new(256.0, 256.0),
+            ..default()
+        });
+
+        timer.set_duration(Duration::from_secs(1));
+        timer.reset();
+    }
+}
+
+#[instrument(skip(maps, cmd, shapes))]
+fn show_tiles(
+    maps: Query<(Entity, &CaveMap), With<Generating>>,
+    mut cmd: Commands,
+    shapes: ShapeCommands,
+) {
+    debug!("show tiles");
+    let scale = 1.0;
+    for (entity, map) in maps.iter() {
+        cmd.entity(entity)
+            .with_shape_children(shapes.config(), |parent| {
+                for ((x, y), tile) in map.map.indexed_iter() {
+                    if let Tile::Wall = *tile {
+                        parent.set_translation(
+                            Vec2::new(x as f32 * scale, y as f32 * scale).extend(1.0),
+                        );
+                        parent.circle(1.0);
+                    }
+                }
+            });
+    }
+}
+
+#[instrument(skip(caves, commands))]
+fn populate_tiles(
+    caves: Query<(Entity, &Caves), (Without<CaveMap>, With<Generating>)>,
+    mut commands: Commands,
+) {
+    debug!("populate tiles");
+    for (entity, system) in caves.iter() {
+        let mut img = image::GrayImage::new(256, 256);
+        for node in system.graph.node_weights() {
+            imageproc::drawing::draw_filled_circle_mut(
+                &mut img,
+                (node.position.x as i32, node.position.y as i32),
+                (node.radius.ceil() * 0.1) as i32,
+                Luma([255]),
+            );
+        }
+        for edge in system.graph.edge_references() {
+            tunnel_between(&system.graph, edge.source(), edge.target(), &mut img);
+        }
+        let map = img
+            .rows()
+            .flat_map(|row| {
+                row.map(|pixel| {
+                    if pixel.0[0] == 0 {
+                        Tile::Wall
+                    } else {
+                        Tile::Floor
+                    }
+                })
+            })
+            .collect_vec();
+        let map = Array2::from_shape_vec((256, 256).strides((1, 256)), map).unwrap();
+        commands.entity(entity).try_insert(CaveMap { map });
+    }
+}
+
+fn tunnel_between(
+    graph: &UnGraph<CaveNode, CaveEdge>,
+    source: NodeIndex,
+    target: NodeIndex,
+    map: &mut GrayImage,
+) {
+    let mut rng = thread_rng();
+    let a = graph.node_weight(source).unwrap();
+    let b = graph.node_weight(target).unwrap();
+    let dir = b.position - a.position;
+    for i in 0..10 {
+        let t = (i as f32 / 10.0).squared();
+        let dir = Rot2::degrees(rng.gen_range(-45.0..45.0)) * dir;
+        imageproc::drawing::draw_filled_circle_mut(
+            map,
+            (a.position + dir * t).as_ivec2().into(),
+            (b.radius * 0.1 * t + a.radius * 0.1 * (1.0 - t)) as i32,
+            Luma([255]),
+        );
+    }
+}
