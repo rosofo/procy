@@ -7,6 +7,7 @@ edition = "2021"
 bevy = { version = "0.15.0", features = ["dynamic_linking"] }
 bevy_ecs_tilemap = { version = "0.15.0", features = ["atlas"] }
 bevy_egui = "0.31.1"
+bevy_rapier2d = { version = "0.28.0", features = ["parallel", "simd-nightly"] }
 bevy_vector_shapes = "0.9.3"
 egui = "0.30.0"
 flat_spatial = "0.6.1"

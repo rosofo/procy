@@ -1,8 +1,10 @@
 use crate::prelude::*;
 
 pub fn terrain_plugin(app: &mut App) {
+    app.add_event::<SetTiles>();
     app.init_resource::<Tileset>();
     app.add_systems(Startup, setup);
+    app.add_systems(Update, (set_tile_textures, set_tilemap_collider));
 }
 
 pub const FLOOR: u32 = 35;
@@ -65,5 +67,61 @@ impl FromWorld for Tileset {
     fn from_world(world: &mut World) -> Self {
         let tileset = world.load_asset("tiles/TileSet.png");
         Self(tileset)
+    }
+}
+
+#[derive(Event)]
+pub struct SetTiles(pub Vec<(TilePos, TileType)>);
+
+pub enum TileType {
+    Wall,
+    Floor,
+}
+
+fn set_tile_textures(
+    mut events: EventReader<SetTiles>,
+    tile_storage: Single<&TileStorage>,
+    mut tiles: Query<&mut TileTextureIndex>,
+) {
+    for event in events.read() {
+        let entities = event
+            .0
+            .iter()
+            .map(|(pos, _)| tile_storage.get(pos).unwrap());
+        let mut indices = tiles.iter_many_mut(entities);
+        let mut i = 0;
+        while let Some(mut idx) = indices.fetch_next() {
+            let tile = &event.0[i].1;
+            i += 1;
+            match tile {
+                TileType::Floor => idx.0 = FLOOR,
+                TileType::Wall => idx.0 = WALL,
+            }
+        }
+    }
+}
+
+fn set_tilemap_collider(
+    mut events: EventReader<SetTiles>,
+    tile_storage: Single<(Entity, &TileStorage)>,
+    mut commands: Commands,
+) {
+    for SetTiles(tiles) in events.read() {
+        let tile_collider = Collider::cuboid(6.0, 6.0);
+        let collider = Collider::compound(
+            tiles
+                .iter()
+                .filter_map(|(pos, tile)| {
+                    if let TileType::Floor = tile {
+                        return None;
+                    }
+                    let translation = Vect::new(pos.x as f32 * 12.0, pos.y as f32 * 12.0);
+                    Some((translation, Rot::default(), tile_collider.clone())) // cheap clone (internal Arc)
+                })
+                .collect_vec(),
+        );
+        commands
+            .entity(tile_storage.0)
+            .insert((collider, RigidBody::Fixed));
     }
 }

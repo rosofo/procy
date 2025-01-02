@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::{
     math::trunc_falloff,
-    plugins::terrain::{FLOOR, WALL},
+    plugins::terrain::{TileType, FLOOR, WALL},
     prelude::*,
 };
 use bevy::{
@@ -13,6 +13,8 @@ use image::{GrayImage, Luma};
 use ops::FloatPow;
 use petgraph::{prelude::*, visit::IntoNodeReferences};
 use rand::{thread_rng, Rng};
+
+use super::terrain::SetTiles;
 
 pub fn caves_plugin(app: &mut App) {
     app.insert_resource(Config {
@@ -273,11 +275,10 @@ fn regen(caves: Query<Entity, With<Caves>>, mut commands: Commands) {
     });
 }
 
-#[instrument(skip(caves, tile_storage, tiles, config))]
+#[instrument(skip(caves, events, config))]
 fn populate_tiles(
     caves: Query<(Entity, &Caves), With<Generating>>,
-    tile_storage: Single<&TileStorage>,
-    mut tiles: Query<&mut TileTextureIndex>,
+    mut events: EventWriter<SetTiles>,
     config: Res<Config>,
 ) {
     for (entity, system) in caves.iter() {
@@ -301,19 +302,24 @@ fn populate_tiles(
             );
         }
 
-        for (i, pixel) in img.iter().enumerate() {
-            let x = i as u32 % 256;
-            let y = i as u32 / 256;
-            let tile = tile_storage
-                .get(&TilePos { x, y })
-                .expect("Tile storage should already be populated");
-            let mut idx = tiles.get_mut(tile).unwrap();
-            if *pixel == 255 {
-                idx.0 = FLOOR;
-            } else {
-                idx.0 = WALL;
-            }
-        }
+        let set_tiles = img
+            .iter()
+            .enumerate()
+            .map(|(i, pixel)| {
+                let x = i as u32 % 256;
+                let y = i as u32 / 256;
+                (
+                    TilePos { x, y },
+                    if *pixel == 255 {
+                        TileType::Floor
+                    } else {
+                        TileType::Wall
+                    },
+                )
+            })
+            .collect_vec();
+
+        events.send(SetTiles(set_tiles));
     }
 }
 
