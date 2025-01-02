@@ -8,13 +8,13 @@ bevy = { version = "0.15.0", features = ["dynamic_linking"] }
 bevy_ecs_tilemap = { version = "0.15.0", features = ["atlas"] }
 bevy_egui = "0.31.1"
 bevy_rapier2d = { version = "0.28.0", features = ["parallel", "simd-nightly"] }
-bevy_vector_shapes = "0.9.3"
 egui = "0.30.0"
 flat_spatial = "0.6.1"
 image = "0.25.5"
 imageproc = "0.25.0"
 itertools = "0.14.0"
 iyes_perf_ui = { git = "https://github.com/IyesGames/iyes_perf_ui.git", version = "0.4.0-rc.1" }
+leafwing-input-manager = { version = "0.16.0", features = ["egui"] }
 ndarray = { version = "0.16.1", features = ["rayon"] }
 petgraph = { version = "0.7.0", features = ["generate", "rayon"] }
 rand = "0.8.5"
