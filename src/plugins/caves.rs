@@ -128,38 +128,6 @@ pub struct Caves {
 #[derive(Component, Default)]
 pub struct Generating;
 
-#[instrument(skip(caves, cmd, shapes, config))]
-fn show_graph(
-    caves: Query<(Entity, &Caves), With<Generating>>,
-    mut cmd: Commands,
-    shapes: ShapeCommands,
-    config: Res<Config>,
-) {
-    let curve = ColorCurve::new([RED, GREEN, BLUE]).unwrap();
-    for (entity, caves) in caves.iter() {
-        if let Some(mut entity) = cmd.get_entity(entity) {
-            entity.with_shape_children(shapes.config(), |parent| {
-                debug!("draw edges");
-                for edge in caves.graph.edge_indices() {
-                    let (a, b) = caves.graph.edge_endpoints(edge).unwrap();
-                    let a = &caves.graph[a];
-                    let b = &caves.graph[b];
-                    let dist = a.position.distance(b.position);
-                    parent.set_color(curve.sample_clamped(dist / config.edge_color_factor));
-                    parent.line(a.position.extend(0.0), b.position.extend(0.0));
-                }
-                debug!("draw nodes");
-                for node in caves.graph.node_indices() {
-                    let node = &caves.graph[node];
-                    parent.set_translation(node.position.extend(0.0));
-                    parent.set_color(curve.sample_clamped(node.radius / config.node_color_factor));
-                    parent.circle(node.radius * config.node_radius_factor);
-                }
-            });
-        }
-    }
-}
-
 fn seed(mut caves: Query<&mut Caves, With<Generating>>, config: Res<Config>) {
     for mut system in caves.iter_mut() {
         random_bsp(system.size, &config)
