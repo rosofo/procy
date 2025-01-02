@@ -5,3 +5,4 @@ pub use bevy_egui::*;
 pub use bevy_rapier2d::prelude::*;
 pub use itertools::*;
 pub use leafwing_input_manager::prelude::*;
+pub use rand::prelude::*;

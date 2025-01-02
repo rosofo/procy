@@ -1,4 +1,8 @@
+use rand::thread_rng;
+
 use crate::prelude::*;
+
+use super::pathfinding::Goal;
 
 pub fn terrain_plugin(app: &mut App) {
     app.add_event::<SetTiles>();
@@ -85,8 +89,10 @@ pub enum TileType {
 fn set_tile_textures(
     mut events: EventReader<SetTiles>,
     tile_storage: Single<&TileStorage>,
-    mut tiles: Query<(&mut TileTextureIndex, &mut TileType)>,
+    mut tiles: Query<(Entity, &mut TileTextureIndex, &mut TileType)>,
+    mut commands: Commands,
 ) {
+    let mut rng = thread_rng();
     for event in events.read() {
         let entities = event
             .0
@@ -94,7 +100,7 @@ fn set_tile_textures(
             .map(|(pos, _)| tile_storage.get(pos).unwrap());
         let mut indices = tiles.iter_many_mut(entities);
         let mut i = 0;
-        while let Some((mut idx, mut tile_type)) = indices.fetch_next() {
+        while let Some((entity, mut idx, mut tile_type)) = indices.fetch_next() {
             let tile = &event.0[i].1;
             i += 1;
             match tile {
@@ -106,6 +112,11 @@ fn set_tile_textures(
                     idx.0 = WALL;
                     *tile_type = TileType::Wall;
                 }
+            }
+
+            if rng.gen_bool(0.002) {
+                commands.entity(entity).insert(Goal);
+                idx.0 = FLOOR + 1;
             }
         }
     }

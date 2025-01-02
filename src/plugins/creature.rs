@@ -1,8 +1,10 @@
 use crate::prelude::*;
 
+use super::pathfinding::DMap;
+
 pub fn creature_plugin(app: &mut App) {
     app.add_systems(Startup, setup);
-    app.add_systems(FixedUpdate, (flap, lift));
+    app.add_systems(FixedUpdate, (flap, (lift, pathfind).chain()));
 }
 
 #[derive(Component)]
@@ -91,8 +93,53 @@ fn lift(
 ) {
     for (wing, parent) in wings.iter() {
         let relvel = wing.linvel - bats.get(parent.get()).unwrap().linvel;
-        commands.entity(parent.get()).insert(ExternalForce {
-            force: Vec2::Y * relvel.dot(Vec2::NEG_Y).min(0.0) * -10000.0,
+        commands.entity(parent.get()).insert(ExternalImpulse {
+            impulse: Vec2::Y * relvel.dot(Vec2::Y) * 100.0,
+            ..Default::default()
+        });
+    }
+}
+
+fn pathfind(
+    bats: Query<(Entity, &Transform), With<Bat>>,
+    mut commands: Commands,
+    dmap: Single<&DMap>,
+) {
+    for (bat, trans) in bats.iter() {
+        let coord = TilePos::from_world_pos(
+            &trans.translation.truncate(),
+            &TilemapSize::new(256, 256),
+            &TilemapTileSize::new(12.0, 12.0).into(),
+            &TilemapType::default(),
+        )
+        .unwrap();
+        let coord = IVec2::new(coord.x as i32, coord.y as i32);
+        debug!("bat at {:?}", coord);
+        let window = [
+            coord + IVec2::new(1, 0),
+            coord + IVec2::new(-1, 0),
+            coord + IVec2::new(0, 1),
+            coord + IVec2::new(0, -1),
+            coord,
+            coord + IVec2::new(1, 1),
+            coord + IVec2::new(-1, 1),
+            coord + IVec2::new(1, -1),
+            coord + IVec2::new(-1, -1),
+        ];
+        let vals = window.iter().map(|c| dmap.get(*c));
+        let Some((min, min_val)) = window
+            .iter()
+            .zip(vals)
+            .filter_map(|(c, v)| v.map(|v| (*c, v)))
+            .min_by_key(|(_, v)| *v)
+        else {
+            continue;
+        };
+        let min = min - coord;
+        let force = Vec2::new(min.x as f32, min.y as f32) * 300.0;
+        debug!("pathfinding force: {:?}", force);
+        commands.entity(bat).insert(ExternalImpulse {
+            impulse: force,
             ..Default::default()
         });
     }
