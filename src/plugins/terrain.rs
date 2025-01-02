@@ -1,8 +1,10 @@
 use crate::prelude::*;
 
 pub fn terrain_plugin(app: &mut App) {
+    app.add_event::<SetTiles>();
     app.init_resource::<Tileset>();
     app.add_systems(Startup, setup);
+    app.add_systems(Update, (set_tile_textures, set_tile_rigids));
 }
 
 pub const FLOOR: u32 = 35;
@@ -66,4 +68,42 @@ impl FromWorld for Tileset {
         let tileset = world.load_asset("tiles/TileSet.png");
         Self(tileset)
     }
+}
+
+#[derive(Event)]
+pub struct SetTiles(pub Vec<(TilePos, TileType)>);
+
+pub enum TileType {
+    Wall,
+    Floor,
+}
+
+fn set_tile_textures(
+    mut events: EventReader<SetTiles>,
+    tile_storage: Single<&TileStorage>,
+    mut tiles: Query<&mut TileTextureIndex>,
+) {
+    for event in events.read() {
+        let entities = event
+            .0
+            .iter()
+            .map(|(pos, _)| tile_storage.get(pos).unwrap());
+        let mut indices = tiles.iter_many_mut(entities);
+        let mut i = 0;
+        while let Some(mut idx) = indices.fetch_next() {
+            let tile = &event.0[i].1;
+            i += 1;
+            match tile {
+                TileType::Floor => idx.0 = FLOOR,
+                TileType::Wall => idx.0 = WALL,
+            }
+        }
+    }
+}
+
+fn set_tile_rigids(
+    mut events: EventReader<SetTiles>,
+    tile_storage: Single<&TileStorage>,
+    mut commands: Commands,
+) {
 }

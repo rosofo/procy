@@ -20,6 +20,8 @@ fn main() {
         .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin)
         .add_plugins(bevy::diagnostic::EntityCountDiagnosticsPlugin)
         .add_plugins(iyes_perf_ui::PerfUiPlugin)
+        .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(24.0))
+        .add_plugins(RapierDebugRenderPlugin::default())
         .add_plugins(EguiPlugin)
         .add_plugins(TilemapPlugin)
         .add_plugins(Shape2dPlugin::new(ShapeConfig::default_2d()))
