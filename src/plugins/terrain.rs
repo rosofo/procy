@@ -33,12 +33,15 @@ fn setup(mut commands: Commands, tileset: Res<Tileset>) {
         for y in 0..map_size.y {
             let tile_pos = TilePos { x, y };
             let tile_entity = commands
-                .spawn(TileBundle {
-                    position: tile_pos,
-                    tilemap_id: TilemapId(tilemap_entity),
-                    texture_index: TileTextureIndex(WALL),
-                    ..Default::default()
-                })
+                .spawn((
+                    TileBundle {
+                        position: tile_pos,
+                        tilemap_id: TilemapId(tilemap_entity),
+                        texture_index: TileTextureIndex(WALL),
+                        ..Default::default()
+                    },
+                    TileType::Wall,
+                ))
                 .id();
             tile_storage.set(&tile_pos, tile_entity);
         }
@@ -73,6 +76,7 @@ impl FromWorld for Tileset {
 #[derive(Event)]
 pub struct SetTiles(pub Vec<(TilePos, TileType)>);
 
+#[derive(Component)]
 pub enum TileType {
     Wall,
     Floor,
@@ -81,7 +85,7 @@ pub enum TileType {
 fn set_tile_textures(
     mut events: EventReader<SetTiles>,
     tile_storage: Single<&TileStorage>,
-    mut tiles: Query<&mut TileTextureIndex>,
+    mut tiles: Query<(&mut TileTextureIndex, &mut TileType)>,
 ) {
     for event in events.read() {
         let entities = event
@@ -90,12 +94,18 @@ fn set_tile_textures(
             .map(|(pos, _)| tile_storage.get(pos).unwrap());
         let mut indices = tiles.iter_many_mut(entities);
         let mut i = 0;
-        while let Some(mut idx) = indices.fetch_next() {
+        while let Some((mut idx, mut tile_type)) = indices.fetch_next() {
             let tile = &event.0[i].1;
             i += 1;
             match tile {
-                TileType::Floor => idx.0 = FLOOR,
-                TileType::Wall => idx.0 = WALL,
+                TileType::Floor => {
+                    idx.0 = FLOOR;
+                    *tile_type = TileType::Floor;
+                }
+                TileType::Wall => {
+                    idx.0 = WALL;
+                    *tile_type = TileType::Wall;
+                }
             }
         }
     }

@@ -7,6 +7,7 @@ use iyes_perf_ui::prelude::PerfUiAllEntries;
 use plugins::{
     caves::{caves_plugin, Caves},
     creature::creature_plugin,
+    pathfinding::pathfinding_plugin,
     spawn_tool::spawn_tool_plugin,
     terrain::terrain_plugin,
 };
@@ -30,6 +31,7 @@ fn main() {
         .add_plugins(caves_plugin)
         .add_plugins(spawn_tool_plugin)
         .add_plugins(creature_plugin)
+        .add_plugins(pathfinding_plugin)
         .add_systems(Startup, setup)
         .add_systems(FixedPostUpdate, || {
             tracy_client::secondary_frame_mark!("Fixed Frame");

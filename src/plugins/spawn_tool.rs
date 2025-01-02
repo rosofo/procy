@@ -2,7 +2,10 @@ use std::time::Duration;
 
 use bevy::window::PrimaryWindow;
 
-use crate::{plugins::creature::Bat, prelude::*};
+use crate::{
+    plugins::{creature::Bat, pathfinding::Goal},
+    prelude::*,
+};
 
 pub fn spawn_tool_plugin(app: &mut App) {
     app.init_state::<Tool>();
@@ -38,6 +41,7 @@ fn spawn_at(
     time: Res<Time>,
     mut commands: Commands,
     camera: Single<(&Camera, &GlobalTransform)>,
+    tiles: Query<Entity, With<TilePos>>,
 ) {
     timer.tick(time.delta());
     let mut vel = Vec2::ZERO;
@@ -47,7 +51,12 @@ fn spawn_at(
     }
 
     // Each action has a button-like state of its own that you can check
-    if action_state.pressed(&Action::SpawnAt) && timer.finished() {
+    let pressed = if **tool == Tool::Goal {
+        action_state.just_pressed(&Action::SpawnAt)
+    } else {
+        action_state.pressed(&Action::SpawnAt)
+    };
+    if pressed && timer.finished() {
         let pos = cursor_to_world(*cursor, camera.0, camera.1);
         debug!("spawn at {:?}", pos);
 
@@ -65,6 +74,10 @@ fn spawn_at(
                     Transform::from_translation(pos),
                     Velocity::linear(vel.reflect(Vec2::Y) * 100.0),
                 ));
+            }
+            Tool::Goal => {
+                let tile = tiles.iter().next().unwrap();
+                commands.entity(tile).insert(Goal);
             }
         };
         timer.set_duration(Duration::from_millis(100));
@@ -96,6 +109,7 @@ pub enum Tool {
     #[default]
     Ball,
     Bat,
+    Goal,
 }
 
 fn ui(
@@ -107,6 +121,7 @@ fn ui(
         let mut state = **state;
         ui.radio_value(&mut state, Tool::Ball, "Ball");
         ui.radio_value(&mut state, Tool::Bat, "Bat");
+        ui.radio_value(&mut state, Tool::Goal, "Goal");
         next_state.set(state);
     });
 }
