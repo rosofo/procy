@@ -2,11 +2,12 @@ use std::time::Duration;
 
 use bevy::window::PrimaryWindow;
 
-use crate::prelude::*;
+use crate::{plugins::creature::Bat, prelude::*};
 
 pub fn spawn_tool_plugin(app: &mut App) {
+    app.init_state::<Tool>();
     app.add_systems(Startup, spawn_player);
-    app.add_systems(Update, spawn_at);
+    app.add_systems(Update, (spawn_at, ui));
     app.add_plugins(InputManagerPlugin::<Action>::default());
 }
 
@@ -27,7 +28,9 @@ fn spawn_player(mut commands: Commands) {
 }
 
 // Query for the `ActionState` component in your game logic systems!
+#[allow(clippy::too_many_arguments)]
 fn spawn_at(
+    tool: Res<State<Tool>>,
     action_state: Single<&ActionState<Action>, With<Player>>,
     mut events: EventReader<CursorMoved>,
     mut cursor: Local<Vec2>,
@@ -48,11 +51,22 @@ fn spawn_at(
         let pos = cursor_to_world(*cursor, camera.0, camera.1);
         debug!("spawn at {:?}", pos);
 
-        commands.spawn((
-            Ball,
-            Transform::from_translation(pos),
-            Velocity::linear(vel.reflect(Vec2::Y) * 100.0),
-        ));
+        match **tool {
+            Tool::Ball => {
+                commands.spawn((
+                    Ball,
+                    Transform::from_translation(pos),
+                    Velocity::linear(vel.reflect(Vec2::Y) * 100.0),
+                ));
+            }
+            Tool::Bat => {
+                commands.spawn((
+                    Bat,
+                    Transform::from_translation(pos),
+                    Velocity::linear(vel.reflect(Vec2::Y) * 100.0),
+                ));
+            }
+        };
         timer.set_duration(Duration::from_millis(100));
         timer.reset();
     }
@@ -75,4 +89,24 @@ fn cursor_to_world(cursor: Vec2, camera: &Camera, trans: &GlobalTransform) -> Ve
         .viewport_to_world_2d(trans, cursor)
         .unwrap()
         .extend(0.0)
+}
+
+#[derive(States, Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Tool {
+    #[default]
+    Ball,
+    Bat,
+}
+
+fn ui(
+    mut contexts: EguiContexts,
+    state: Res<State<Tool>>,
+    mut next_state: ResMut<NextState<Tool>>,
+) {
+    egui::Window::new("Spawn Tool").show(contexts.ctx_mut(), |ui| {
+        let mut state = **state;
+        ui.radio_value(&mut state, Tool::Ball, "Ball");
+        ui.radio_value(&mut state, Tool::Bat, "Bat");
+        next_state.set(state);
+    });
 }
