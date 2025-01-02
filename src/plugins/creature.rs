@@ -2,7 +2,7 @@ use crate::prelude::*;
 
 pub fn creature_plugin(app: &mut App) {
     app.add_systems(Startup, setup);
-    app.add_systems(FixedUpdate, flap);
+    app.add_systems(FixedUpdate, (flap, lift));
 }
 
 #[derive(Component)]
@@ -17,6 +17,9 @@ pub fn creature_plugin(app: &mut App) {
 
 )]
 pub struct Bat;
+
+#[derive(Component)]
+pub struct Wing;
 
 fn setup(world: &mut World) {
     let hooks = world.register_component_hooks::<Bat>();
@@ -33,6 +36,7 @@ fn setup(world: &mut World) {
                 .build();
             parent.spawn((
                 collider.clone(),
+                Wing,
                 RigidBody::Dynamic,
                 ColliderMassProperties::Density(0.3),
                 GravityScale(1.0),
@@ -45,6 +49,7 @@ fn setup(world: &mut World) {
             ));
             parent.spawn((
                 collider,
+                Wing,
                 RigidBody::Dynamic,
                 Sleeping::disabled(),
                 GravityScale(1.0),
@@ -76,5 +81,19 @@ fn flap(
             joint.set_motor_position(sign * target_pos, 2000.0, 30.0);
             sign *= -1.0;
         }
+    }
+}
+
+fn lift(
+    wings: Query<(&Velocity, &Parent), With<Wing>>,
+    bats: Query<&Velocity, With<Bat>>,
+    mut commands: Commands,
+) {
+    for (wing, parent) in wings.iter() {
+        let relvel = wing.linvel - bats.get(parent.get()).unwrap().linvel;
+        commands.entity(parent.get()).insert(ExternalForce {
+            force: Vec2::Y * relvel.dot(Vec2::NEG_Y).min(0.0) * -10000.0,
+            ..Default::default()
+        });
     }
 }
