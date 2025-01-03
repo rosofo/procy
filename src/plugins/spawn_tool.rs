@@ -7,10 +7,12 @@ use crate::{
     prelude::*,
 };
 
+use super::terrain::MapConfig;
+
 pub fn spawn_tool_plugin(app: &mut App) {
     app.init_state::<Tool>();
     app.add_systems(Startup, spawn_player);
-    app.add_systems(Update, (spawn_at, ui));
+    app.add_systems(Update, (spawn_at, mark_goal, ui));
     app.add_plugins(InputManagerPlugin::<Action>::default());
 }
 
@@ -41,7 +43,6 @@ fn spawn_at(
     time: Res<Time>,
     mut commands: Commands,
     camera: Single<(&Camera, &GlobalTransform)>,
-    tiles: Query<Entity, With<TilePos>>,
 ) {
     timer.tick(time.delta());
     let mut vel = Vec2::ZERO;
@@ -50,12 +51,7 @@ fn spawn_at(
         *cursor = pos;
     }
 
-    // Each action has a button-like state of its own that you can check
-    let pressed = if **tool == Tool::Goal {
-        action_state.just_pressed(&Action::SpawnAt)
-    } else {
-        action_state.pressed(&Action::SpawnAt)
-    };
+    let pressed = action_state.pressed(&Action::SpawnAt);
     if pressed && timer.finished() {
         let pos = cursor_to_world(*cursor, camera.0, camera.1);
         debug!("spawn at {:?}", pos);
@@ -75,13 +71,36 @@ fn spawn_at(
                     Velocity::linear(vel.reflect(Vec2::Y) * 100.0),
                 ));
             }
-            Tool::Goal => {
-                let tile = tiles.iter().next().unwrap();
-                commands.entity(tile).insert(Goal);
-            }
+            _ => {}
         };
         timer.set_duration(Duration::from_millis(100));
         timer.reset();
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn mark_goal(
+    tool: Res<State<Tool>>,
+    action_state: Single<&ActionState<Action>, With<Player>>,
+    mut events: EventReader<CursorMoved>,
+    mut cursor: Local<Vec2>,
+    mut commands: Commands,
+    camera: Single<(&Camera, &GlobalTransform)>,
+    tile_storage: Single<&TileStorage>,
+    config: Res<MapConfig>,
+) {
+    if let Some(pos) = events.read().last().map(|e| e.position) {
+        *cursor = pos;
+    }
+
+    if action_state.just_pressed(&Action::SpawnAt) && **tool == Tool::Goal {
+        let pos = cursor_to_world(*cursor, camera.0, camera.1);
+        debug!("mark goal at {:?}", pos);
+
+        if let Some(tile_pos) = config.world_to_tile(pos.truncate()) {
+            let tile = tile_storage.get(&tile_pos).unwrap();
+            commands.entity(tile).insert(Goal);
+        }
     }
 }
 

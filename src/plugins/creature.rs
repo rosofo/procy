@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-use super::pathfinding::DMap;
+use super::{pathfinding::DMap, terrain::MapConfig};
 
 pub fn creature_plugin(app: &mut App) {
     app.add_systems(Startup, setup);
@@ -104,15 +104,10 @@ fn pathfind(
     bats: Query<(Entity, &Transform), With<Bat>>,
     mut commands: Commands,
     dmap: Single<&DMap>,
+    config: Res<MapConfig>,
 ) {
     for (bat, trans) in bats.iter() {
-        let coord = TilePos::from_world_pos(
-            &trans.translation.truncate(),
-            &TilemapSize::new(256, 256),
-            &TilemapTileSize::new(12.0, 12.0).into(),
-            &TilemapType::default(),
-        )
-        .unwrap();
+        let coord = config.world_to_tile(trans.translation.truncate()).unwrap();
         let coord = IVec2::new(coord.x as i32, coord.y as i32);
         debug!("bat at {:?}", coord);
         let window = [

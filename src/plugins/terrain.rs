@@ -5,6 +5,13 @@ use crate::prelude::*;
 use super::pathfinding::Goal;
 
 pub fn terrain_plugin(app: &mut App) {
+    app.insert_resource(MapConfig {
+        floor_idx: 35,
+        wall_idx: 72,
+        size: TilemapSize { x: 256, y: 256 },
+        tile_size: TilemapTileSize { x: 12.0, y: 12.0 },
+        grid_size: TilemapGridSize { x: 12.0, y: 12.0 },
+    });
     app.add_event::<SetTiles>();
     app.init_resource::<Tileset>();
     app.add_systems(Startup, setup);
@@ -14,7 +21,25 @@ pub fn terrain_plugin(app: &mut App) {
 pub const FLOOR: u32 = 35;
 pub const WALL: u32 = 72;
 
-fn setup(mut commands: Commands, tileset: Res<Tileset>) {
+#[derive(Resource)]
+pub struct MapConfig {
+    pub floor_idx: u32,
+    pub wall_idx: u32,
+    pub size: TilemapSize,
+    pub tile_size: TilemapTileSize,
+    pub grid_size: TilemapGridSize,
+}
+
+impl MapConfig {
+    pub fn world_to_tile(&self, pos: Vec2) -> Option<TilePos> {
+        TilePos::from_world_pos(&pos, &self.size, &self.grid_size, &TilemapType::Square)
+    }
+    pub fn tile_to_world(&self, pos: TilePos) -> Vec2 {
+        pos.center_in_world(&self.grid_size, &TilemapType::Square)
+    }
+}
+
+fn setup(mut commands: Commands, tileset: Res<Tileset>, config: Res<MapConfig>) {
     let texture_handle = tileset.0.clone();
     let map_size = TilemapSize { x: 256, y: 256 };
 
@@ -91,6 +116,7 @@ fn set_tile_textures(
     tile_storage: Single<&TileStorage>,
     mut tiles: Query<(Entity, &mut TileTextureIndex, &mut TileType)>,
     mut commands: Commands,
+    config: Res<MapConfig>,
 ) {
     let mut rng = thread_rng();
     for event in events.read() {
@@ -116,7 +142,7 @@ fn set_tile_textures(
 
             if rng.gen_bool(0.002) {
                 commands.entity(entity).insert(Goal);
-                idx.0 = FLOOR + 1;
+                idx.0 = config.floor_idx + 1;
             }
         }
     }
@@ -126,6 +152,7 @@ fn set_tilemap_collider(
     mut events: EventReader<SetTiles>,
     tile_storage: Single<(Entity, &TileStorage)>,
     mut commands: Commands,
+    config: Res<MapConfig>,
 ) {
     for SetTiles(tiles) in events.read() {
         let tile_collider = Collider::cuboid(6.0, 6.0);
