@@ -2,8 +2,6 @@ use rand::thread_rng;
 
 use crate::prelude::*;
 
-use super::pathfinding::Goal;
-
 pub fn terrain_plugin(app: &mut App) {
     app.insert_resource(MapConfig {
         floor_idx: 35,
@@ -15,7 +13,7 @@ pub fn terrain_plugin(app: &mut App) {
     app.add_event::<SetTiles>();
     app.init_resource::<Tileset>();
     app.add_systems(Startup, setup);
-    app.add_systems(Update, (set_tile_textures, set_tilemap_collider));
+    app.add_systems(Update, (set_tile_textures, set_tilemap_collider, debug));
 }
 
 pub const FLOOR: u32 = 35;
@@ -32,10 +30,21 @@ pub struct MapConfig {
 
 impl MapConfig {
     pub fn world_to_tile(&self, pos: Vec2) -> Option<TilePos> {
+        let pos = pos
+            + Vec2::new(
+                self.size.x as f32 * self.tile_size.x,
+                self.size.y as f32 * self.tile_size.y,
+            ) / 2.
+            + Vec2::new(self.tile_size.x, self.tile_size.y) / 2.;
         TilePos::from_world_pos(&pos, &self.size, &self.grid_size, &TilemapType::Square)
     }
     pub fn tile_to_world(&self, pos: TilePos) -> Vec2 {
-        pos.center_in_world(&self.grid_size, &TilemapType::Square)
+        let pos = pos.center_in_world(&self.grid_size, &TilemapType::Square);
+        pos - Vec2::new(
+            self.size.x as f32 * self.tile_size.x,
+            self.size.y as f32 * self.tile_size.y,
+        ) / 2.
+            - Vec2::new(self.tile_size.x, self.tile_size.y) / 2.
     }
 }
 
@@ -115,10 +124,8 @@ fn set_tile_textures(
     mut events: EventReader<SetTiles>,
     tile_storage: Single<&TileStorage>,
     mut tiles: Query<(Entity, &mut TileTextureIndex, &mut TileType)>,
-    mut commands: Commands,
     config: Res<MapConfig>,
 ) {
-    let mut rng = thread_rng();
     for event in events.read() {
         let entities = event
             .0
@@ -131,18 +138,13 @@ fn set_tile_textures(
             i += 1;
             match tile {
                 TileType::Floor => {
-                    idx.0 = FLOOR;
+                    idx.0 = config.floor_idx;
                     *tile_type = TileType::Floor;
                 }
                 TileType::Wall => {
-                    idx.0 = WALL;
+                    idx.0 = config.wall_idx;
                     *tile_type = TileType::Wall;
                 }
-            }
-
-            if rng.gen_bool(0.002) {
-                commands.entity(entity).insert(Goal);
-                idx.0 = config.floor_idx + 1;
             }
         }
     }
@@ -152,7 +154,6 @@ fn set_tilemap_collider(
     mut events: EventReader<SetTiles>,
     tile_storage: Single<(Entity, &TileStorage)>,
     mut commands: Commands,
-    config: Res<MapConfig>,
 ) {
     for SetTiles(tiles) in events.read() {
         let tile_collider = Collider::cuboid(6.0, 6.0);
@@ -172,4 +173,24 @@ fn set_tilemap_collider(
             .entity(tile_storage.0)
             .insert((collider, RigidBody::Fixed));
     }
+}
+
+fn debug(
+    mut cursor: Local<Vec2>,
+    mut events: EventReader<CursorMoved>,
+    config: Res<MapConfig>,
+    camera: Single<(&Camera, &GlobalTransform)>,
+) {
+    if let Some(e) = events.read().last() {
+        *cursor = e.position;
+    }
+
+    let world = camera.0.viewport_to_world_2d(camera.1, *cursor).unwrap();
+    let tile = config.world_to_tile(world);
+    let back_to_world = tile.map(|pos| config.tile_to_world(pos));
+
+    debug!(
+        "cursor: {:?}, world: {:?}, world_to_tile: {:?}, tile_to_world: {:?}",
+        cursor, world, tile, back_to_world
+    );
 }

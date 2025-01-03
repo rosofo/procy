@@ -7,12 +7,17 @@ use crate::{
     prelude::*,
 };
 
-use super::terrain::MapConfig;
+use super::{
+    caves::Regen,
+    pathfinding::{DMap, UpdateDMap},
+    terrain::MapConfig,
+};
 
 pub fn spawn_tool_plugin(app: &mut App) {
     app.init_state::<Tool>();
     app.add_systems(Startup, spawn_player);
     app.add_systems(Update, (spawn_at, mark_goal, ui));
+    app.add_systems(FixedUpdate, send_update_dmap);
     app.add_plugins(InputManagerPlugin::<Action>::default());
 }
 
@@ -99,8 +104,22 @@ fn mark_goal(
 
         if let Some(tile_pos) = config.world_to_tile(pos.truncate()) {
             let tile = tile_storage.get(&tile_pos).unwrap();
-            commands.entity(tile).insert(Goal);
+            commands
+                .entity(tile)
+                .insert(Goal)
+                .insert(TileColor(GREEN.into()));
         }
+    }
+}
+
+fn send_update_dmap(
+    tool: Res<State<Tool>>,
+    action_state: Single<&ActionState<Action>, With<Player>>,
+    mut events: EventWriter<UpdateDMap>,
+    dmap: Single<Entity, With<DMap>>,
+) {
+    if action_state.just_pressed(&Action::SpawnAt) && **tool == Tool::Goal {
+        events.send(UpdateDMap(dmap.into_inner()));
     }
 }
 

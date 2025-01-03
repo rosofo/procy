@@ -3,10 +3,13 @@ use ndarray::{Array2, Axis};
 
 use crate::prelude::*;
 
-use super::terrain::TileType;
+use super::terrain::{MapConfig, TileType};
 
 pub fn pathfinding_plugin(app: &mut App) {
-    app.add_systems(Update, (update_dmap).run_if(on_event::<UpdateDMap>));
+    app.add_systems(
+        Update,
+        (update_dmap, debug_render).run_if(on_event::<UpdateDMap>),
+    );
     app.add_event::<UpdateDMap>();
 }
 
@@ -120,6 +123,7 @@ fn debug_render(
     mut tiles: Query<(&TilePos, &TileType, &mut TileColor)>,
     mut commands: Commands,
     tile_labels: Query<Entity, With<TileLabel>>,
+    config: Res<MapConfig>,
 ) {
     tile_labels
         .iter()
@@ -139,16 +143,12 @@ fn debug_render(
                     .unwrap()
                     .into();
             }
-            if val <= 10 {
+            if val <= 20 {
                 commands.spawn((
                     TileLabel(tile),
                     Text2d(val.to_string()),
                     TextFont::from_font_size(8.0),
-                    Transform::from_xyz(
-                        (pos.x as i32 - 128) as f32 * 12.0,
-                        (pos.y as i32 - 128) as f32 * 12.0,
-                        1.0,
-                    ),
+                    Transform::from_translation(config.tile_to_world(*pos).extend(1.0)),
                 ));
             }
         } else {
