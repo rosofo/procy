@@ -13,7 +13,7 @@ pub fn terrain_plugin(app: &mut App) {
     app.add_event::<SetTiles>();
     app.init_resource::<Tileset>();
     app.add_systems(Startup, setup);
-    app.add_systems(Update, (set_tile_textures, set_tilemap_collider, debug));
+    app.add_systems(Update, (set_tile_textures, set_tilemap_collider));
 }
 
 pub const FLOOR: u32 = 35;

@@ -4302,6 +4302,7 @@ dependencies = [
  "bevy_ecs_tilemap",
  "bevy_egui",
  "bevy_rapier2d",
+ "cpal",
  "egui 0.30.0",
  "flat_spatial",
  "image",
@@ -4315,6 +4316,7 @@ dependencies = [
  "tracing",
  "tracing-tracy",
  "tracy-client",
+ "triple_buffer",
 ]
 
 [[package]]
@@ -5359,6 +5361,15 @@ checksum = "69fff37da548239c3bf9e64a12193d261e8b22b660991c6fd2df057c168f435f"
 dependencies = [
  "cc",
  "windows-targets 0.52.6",
+]
+
+[[package]]
+name = "triple_buffer"
+version = "8.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e66931c8eca6381f0d34656a9341f09bd462010488c1a3bc0acd3f2d08dffce"
+dependencies = [
+ "crossbeam-utils",
 ]
 
 [[package]]

@@ -8,6 +8,7 @@ bevy = { version = "0.15.0", features = ["dynamic_linking"] }
 bevy_ecs_tilemap = { version = "0.15.0", features = ["atlas"] }
 bevy_egui = "0.31.1"
 bevy_rapier2d = { version = "0.28.0", features = ["parallel", "simd-nightly"] }
+cpal = "0.15.3"
 egui = "0.30.0"
 flat_spatial = "0.6.1"
 image = "0.25.5"
@@ -21,6 +22,7 @@ rand = "0.8.5"
 tracing = "0.1.41"
 tracing-tracy = "0.11.4"
 tracy-client = "0.18.0"
+triple_buffer = "8.0.0"
 
 [workspace]
 resolver = "2"
