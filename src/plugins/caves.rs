@@ -14,7 +14,10 @@ use ops::FloatPow;
 use petgraph::{prelude::*, visit::IntoNodeReferences};
 use rand::{thread_rng, Rng};
 
-use super::terrain::SetTiles;
+use super::{
+    pathfinding::{DMap, UpdateDMap},
+    terrain::SetTiles,
+};
 
 pub fn caves_plugin(app: &mut App) {
     app.insert_resource(Config {
@@ -35,7 +38,10 @@ pub fn caves_plugin(app: &mut App) {
         Update,
         regen.run_if(input_just_pressed(KeyCode::Space).or(on_event::<Regen>)),
     );
-    app.add_systems(FixedUpdate, (seed, connect, populate_tiles, finish).chain());
+    app.add_systems(
+        FixedUpdate,
+        ((seed, connect, populate_tiles, finish).chain(), insert_dmap),
+    );
 }
 
 fn ui(mut contexts: EguiContexts, mut config: ResMut<Config>, mut events: EventWriter<Regen>) {
@@ -312,5 +318,18 @@ fn tunnel_between(
                 + a.radius * config.tunnel_thickness * (1.0 - t)) as i32,
             Luma([255]),
         );
+    }
+}
+
+fn insert_dmap(
+    tile_storage: Single<Entity, With<TileStorage>>,
+    mut commands: Commands,
+    caves: Query<Entity, (With<Caves>, Without<Generating>, Without<DMap>)>,
+) {
+    for cave in caves.iter() {
+        debug!("insert dmap for caves");
+        let mut cave = commands.entity(cave);
+        let dmap = cave.insert(DMap::new(256, 256, *tile_storage)).id();
+        commands.send_event(UpdateDMap(dmap));
     }
 }

@@ -2,12 +2,22 @@ use std::time::Duration;
 
 use bevy::window::PrimaryWindow;
 
-use crate::{plugins::creature::Bat, prelude::*};
+use crate::{
+    plugins::{creature::Bat, pathfinding::Goal},
+    prelude::*,
+};
+
+use super::{
+    caves::Regen,
+    pathfinding::{DMap, UpdateDMap},
+    terrain::MapConfig,
+};
 
 pub fn spawn_tool_plugin(app: &mut App) {
     app.init_state::<Tool>();
     app.add_systems(Startup, spawn_player);
-    app.add_systems(Update, (spawn_at, ui));
+    app.add_systems(Update, (spawn_at, mark_goal, ui));
+    app.add_systems(FixedUpdate, send_update_dmap);
     app.add_plugins(InputManagerPlugin::<Action>::default());
 }
 
@@ -46,8 +56,8 @@ fn spawn_at(
         *cursor = pos;
     }
 
-    // Each action has a button-like state of its own that you can check
-    if action_state.pressed(&Action::SpawnAt) && timer.finished() {
+    let pressed = action_state.pressed(&Action::SpawnAt);
+    if pressed && timer.finished() {
         let pos = cursor_to_world(*cursor, camera.0, camera.1);
         debug!("spawn at {:?}", pos);
 
@@ -66,9 +76,50 @@ fn spawn_at(
                     Velocity::linear(vel.reflect(Vec2::Y) * 100.0),
                 ));
             }
+            _ => {}
         };
         timer.set_duration(Duration::from_millis(100));
         timer.reset();
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn mark_goal(
+    tool: Res<State<Tool>>,
+    action_state: Single<&ActionState<Action>, With<Player>>,
+    mut events: EventReader<CursorMoved>,
+    mut cursor: Local<Vec2>,
+    mut commands: Commands,
+    camera: Single<(&Camera, &GlobalTransform)>,
+    tile_storage: Single<&TileStorage>,
+    config: Res<MapConfig>,
+) {
+    if let Some(pos) = events.read().last().map(|e| e.position) {
+        *cursor = pos;
+    }
+
+    if action_state.just_pressed(&Action::SpawnAt) && **tool == Tool::Goal {
+        let pos = cursor_to_world(*cursor, camera.0, camera.1);
+        debug!("mark goal at {:?}", pos);
+
+        if let Some(tile_pos) = config.world_to_tile(pos.truncate()) {
+            let tile = tile_storage.get(&tile_pos).unwrap();
+            commands
+                .entity(tile)
+                .insert(Goal)
+                .insert(TileColor(GREEN.into()));
+        }
+    }
+}
+
+fn send_update_dmap(
+    tool: Res<State<Tool>>,
+    action_state: Single<&ActionState<Action>, With<Player>>,
+    mut events: EventWriter<UpdateDMap>,
+    dmap: Single<Entity, With<DMap>>,
+) {
+    if action_state.just_pressed(&Action::SpawnAt) && **tool == Tool::Goal {
+        events.send(UpdateDMap(dmap.into_inner()));
     }
 }
 
@@ -96,6 +147,7 @@ pub enum Tool {
     #[default]
     Ball,
     Bat,
+    Goal,
 }
 
 fn ui(
@@ -107,6 +159,7 @@ fn ui(
         let mut state = **state;
         ui.radio_value(&mut state, Tool::Ball, "Ball");
         ui.radio_value(&mut state, Tool::Bat, "Bat");
+        ui.radio_value(&mut state, Tool::Goal, "Goal");
         next_state.set(state);
     });
 }
