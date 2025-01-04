@@ -179,7 +179,6 @@ fn random_bsp(size: Vec2, config: &Config) -> Vec<CaveNode> {
     let mut stack = vec![Rect::new(0.0, 0.0, size.x, size.y)];
 
     let mut push_node = |rect: Rect| {
-        debug!("leaf");
         nodes.push(CaveNode {
             position: rect.center(),
             radius: rect.width().max(rect.height()),
@@ -188,7 +187,6 @@ fn random_bsp(size: Vec2, config: &Config) -> Vec<CaveNode> {
 
     let mut rng_ = rng.clone();
     let mut split_rect = |stack: &mut Vec<Rect>, rect: Rect| {
-        debug!("split");
         if rng_.gen_bool(0.5) {
             let left = Rect::new(
                 rect.min.x,

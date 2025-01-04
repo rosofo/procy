@@ -9,6 +9,7 @@ use plugins::{
     creature::creature_plugin,
     pathfinding::pathfinding_plugin,
     physics::physics_plugin,
+    sound::sound_plugin,
     spawn_tool::spawn_tool_plugin,
     terrain::terrain_plugin,
 };
@@ -34,6 +35,7 @@ fn main() {
         .add_plugins(creature_plugin)
         .add_plugins(pathfinding_plugin)
         .add_plugins(physics_plugin)
+        .add_plugins(sound_plugin)
         .add_systems(Startup, setup)
         .add_systems(FixedPostUpdate, || {
             tracy_client::secondary_frame_mark!("Fixed Frame");
